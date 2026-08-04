@@ -86,10 +86,14 @@ idf.py build
 |---|---|---|
 | `bootloader/bootloader.bin` | `0x0` | |
 | `partition_table/partition-table.bin` | `0x8000` | from `partitions.csv` |
+| `ota_data_initial.bin` | `0xd000` | selects the boot OTA slot; without it the device may boot the wrong/old slot |
 | `stack-chan.bin` | `0x20000` | the app → `ota_0` |
 | `generated_assets.bin` | `0xA00000` | ~2.3 MB; fonts, wake-word model, emoji, sounds |
 
 `ota_1` is left holding the previous image — that's the recovery slot.
+
+Flash settings baked in by the build (`flasher_args.json`): `--flash_mode dio
+--flash_size 16MB --flash_freq 80m`, chip `esp32s3`.
 
 ---
 
@@ -116,6 +120,43 @@ the port that actually enumerates a serial device.
 `idf.py app-flash` reflashes only the app partition — much quicker than a full
 flash, and correct whenever assets haven't changed (i.e. nearly every dance-tuning
 iteration).
+
+---
+
+## Flashing from a different machine (build here, flash there)
+
+When the build happens on a headless/cloud box but the device is on another
+machine, you don't need ESP-IDF on the flashing machine — just `esptool` and the
+five build artifacts.
+
+1. Copy the flash bundle (see `dist/` produced by `scripts/make-flash-bundle.ps1`,
+   or grab the five `.bin` files listed above plus `flasher_args.json` from
+   `firmware/build/`).
+2. On the flashing machine, install esptool: `pip install esptool` (or use the
+   copy inside any ESP-IDF install).
+3. Put the CoreS3 into download mode (below), note its COM port, and run the
+   bundled `flash.ps1 -Port COM<N>` — or the raw command:
+
+```powershell
+python -m esptool --chip esp32s3 -b 460800 --before default_reset --after hard_reset `
+  write_flash --flash_mode dio --flash_size 16MB --flash_freq 80m `
+  0x0      bootloader.bin `
+  0x8000   partition-table.bin `
+  0xd000   ota_data_initial.bin `
+  0x20000  stack-chan.bin `
+  0xa00000 generated_assets.bin
+```
+
+(Offsets are authoritative from `firmware/build/flasher_args.json`. The bundle
+flattens the `bootloader/` and `partition_table/` subfolders, so the filenames
+above are bare.)
+
+---
+
+## Fastest inner loop (on the build machine with a device attached)
+
+`idf.py app-flash` reflashes only the app partition — much quicker than a full
+flash, and correct whenever assets haven't changed.
 
 ---
 

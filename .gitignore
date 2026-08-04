@@ -1,2 +1,5 @@
 .DS_Store
 .idea/
+
+# Build output: flash bundles produced by scripts/make-flash-bundle.ps1
+dist/
