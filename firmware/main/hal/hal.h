@@ -301,6 +301,17 @@ public:
     void getMicWaveformFrame(std::vector<int16_t>& data);
     void clearupMicTest();
 
+    /* --------------------------- Reactive audio tap --------------------------- */
+    // Streaming mic capture for the beat-reactive dance mode. A dedicated task
+    // pulls the mic (ch0) and speaker-reference (ch1) continuously into ring
+    // buffers, decoupled from the blocking getMicWaveformFrame() path.
+    bool startAudioReactiveCapture();
+    void stopAudioReactiveCapture();
+    bool isAudioReactiveCapturing();
+    // Copy the most recent `count` samples into mic[]/ref[] (ref may be nullptr).
+    // Returns false until at least `count` samples have been captured.
+    bool readAudioReactiveFrame(int16_t* mic, int16_t* ref, size_t count);
+
 private:
     bool _xiaozhi_start_requested = false;
 

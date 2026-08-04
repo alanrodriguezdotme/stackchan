@@ -1,20 +1,24 @@
 /*
  * SPDX-FileCopyrightText: 2026 M5Stack Technology CO LTD
+ * SPDX-FileCopyrightText: 2026 Alan Rodriguez
  *
  * SPDX-License-Identifier: MIT
  */
 #pragma once
 #include <mooncake.h>
 #include <memory>
-#include <mutex>
 
 /**
- * @brief
+ * @brief Standalone beat-reactive dance mode.
  *
+ * Listens to music through the mics and dances on its own - no phone, no server,
+ * no BLE. The heavy lifting lives in stackchan::ReactiveDanceModifier and the
+ * pure DSP core under stackchan::audioreactive.
  */
 class AppDance : public mooncake::AppAbility {
 public:
     AppDance();
+    ~AppDance() override;
 
     void onCreate() override;
     void onOpen() override;
@@ -22,17 +26,8 @@ public:
     void onClose() override;
 
 private:
-    std::mutex _mutex;
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 
-    struct BleHandlerData_t {
-        bool update_flag = false;
-        char* data_ptr   = nullptr;
-    };
-    BleHandlerData_t _ble_avatar_data;
-    BleHandlerData_t _ble_motion_data;
-    BleHandlerData_t _ble_rgb_data;
-
-    uint32_t _last_motion_cmd_tick = 0;
-
-    void check_auto_angle_sync_mode();
+    int _modifier_id = -1;
 };

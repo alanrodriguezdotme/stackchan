@@ -16,3 +16,18 @@ target_include_directories(motion_math_test PRIVATE
 target_compile_features(motion_math_test PRIVATE cxx_std_17)
 
 add_test(NAME motion_math_test COMMAND $<TARGET_FILE:motion_math_test>)
+
+add_executable(audioreactive_test
+    audioreactive_test.cpp
+    ../main/stackchan/audioreactive/audio_analysis.cpp
+    ../main/stackchan/audioreactive/beat_detector.cpp
+    ../main/stackchan/audioreactive/dance_director.cpp
+)
+
+target_include_directories(audioreactive_test PRIVATE
+    ../main
+)
+
+target_compile_features(audioreactive_test PRIVATE cxx_std_17)
+
+add_test(NAME audioreactive_test COMMAND $<TARGET_FILE:audioreactive_test>)

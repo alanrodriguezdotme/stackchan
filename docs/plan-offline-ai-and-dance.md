@@ -371,3 +371,42 @@ Deferred until after hardware testing: **W2, W3, W4.**
   6.0 upstream vs 5.5.4 here). Do not chase upstream mid-project.
 - **Order matters.** W0 gates everything. W3 is mostly deployment and can proceed
   in parallel with W1/W2 since it barely touches firmware.
+
+---
+
+## W1 implementation notes & known limitations (as built)
+
+Beat-reactive dance is implemented as a standalone on-device mode — no phone, no
+server, no BLE. Architecture: all DSP/choreography is pure C++ in
+`firmware/main/stackchan/audioreactive/` (FFT + band energies, adaptive-threshold
+beat detector, choreography director), compiled into BOTH the firmware and the
+host `ctest` suite so the exact code path is unit-tested. Device glue is a
+streaming FreeRTOS mic tap (`hal/hal_audio_reactive.cpp`) + a `ReactiveDanceModifier`
+driving head/face/lights, wrapped by the rewritten `AppDance`.
+
+Deviations from the original plan:
+- **In-house radix-2 FFT instead of ESP-DSP.** Chosen so host tests exercise the
+  real FFT (single code path) with no ESP dependency. Revisit only if CPU headroom
+  becomes a problem — current build leaves 27% app-partition free.
+- **AEC is energy-domain reference subtraction, not adaptive filtering.** Uses the
+  ch1 speaker-reference channel: `band = max(0, mic - refGain*ref)` per band.
+  Phase-insensitive and cheap; kills the robot's own TTS/SFX from self-triggering
+  beats but won't cancel room echo. On by default, `refGain` tunable in code.
+
+On-device tuning & observability (hand-off checklist satisfied):
+- Bottom overlay shows live bass/mid/treble meters, a BPM readout, and a beat-flash
+  dot — so "it didn't dance" is diagnosable as *didn't hear it* vs *heard it, moved
+  badly*.
+- **Tap the overlay** to cycle beat-detector sensitivity LOW/MED/HIGH live, no
+  rebuild. Preset is reflected in the overlay label.
+
+Known limitations / deliberately unfinished:
+- Sensitivity is exposed as 3 coarse presets, not per-parameter sliders. Finer
+  knobs (band edges, refractory, AGC rate) are code-level via `setBeatConfig`.
+- AEC `refGain` and onset mid-mix are compile-time defaults; no runtime UI yet.
+- Closing dance still does `requestWarmReboot(5)` (inherited teardown). Heavy for a
+  frequently-toggled mode — candidate to revisit after hardware testing.
+- Choreography amplitude/servo-wear limits are set conservatively but untuned
+  against real hardware — expect to adjust `DanceConfig` after the first test.
+- Mic-ownership: dance is its own mode and cannot run concurrently with the xiaozhi
+  AI agent (both want the codec). By design for v1.
