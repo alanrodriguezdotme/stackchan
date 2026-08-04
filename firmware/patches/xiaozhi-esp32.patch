@@ -1,8 +1,30 @@
 diff --git a/main/application.cc b/main/application.cc
-index d69d43d..3b6f07e 100644
+index d69d43d..2d272d2 100644
 --- a/main/application.cc
 +++ b/main/application.cc
-@@ -610,33 +610,36 @@ void Application::InitializeProtocol() {
+@@ -432,12 +432,15 @@ void Application::CheckNewVersion() {
+         retry_count = 0;
+         retry_delay = 10; // Reset retry delay
+ 
+-        if (ota_->HasNewVersion()) {
+-            if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
+-                return; // This line will never be reached after reboot
+-            }
+-            // If upgrade failed, continue to normal operation
+-        }
++        // StackChan custom firmware (w0-no-ota): never auto-OTA over our own
++        // build. CheckVersion() above is kept because it also fetches the
++        // xiaozhi websocket endpoint; only the firmware overwrite is disabled.
++        // if (ota_->HasNewVersion()) {
++        //     if (UpgradeFirmware(ota_->GetFirmwareUrl(), ota_->GetFirmwareVersion())) {
++        //         return; // This line will never be reached after reboot
++        //     }
++        //     // If upgrade failed, continue to normal operation
++        // }
+ 
+         // No new version, mark the current version as valid
+         ota_->MarkCurrentVersionValid();
+@@ -610,33 +613,36 @@ void Application::InitializeProtocol() {
  }
  
  void Application::ShowActivationCode(const std::string& code, const std::string& message) {
