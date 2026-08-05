@@ -1,0 +1,12 @@
+# Real config with your Tavily key + LAN IP. Tracked template is
+# xiaozhi-config.override.example.yaml.
+data/.config.yaml
+
+# Server runtime state, logs, downloaded models — all large/local.
+data/
+models/
+.env
+
+# Keep the example files tracked.
+!xiaozhi-config.override.example.yaml
+!.env.example

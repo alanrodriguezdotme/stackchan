@@ -1,0 +1,78 @@
+# ---------------------------------------------------------------------------
+# StackChan offline AI — xiaozhi-server config OVERRIDE.
+#
+# Copy this file to  deploy/offline-ai/data/.config.yaml  and edit the marked
+# spots. The server reads data/.config.yaml FIRST and falls back to the baked-in
+# config.yaml for anything you don't set here — so this file only needs the
+# handful of things we're actually changing. Do NOT paste the whole upstream
+# config in here.
+#
+# Everything not mentioned below keeps its upstream default, which already gives
+# us: VAD = SileroVAD (CPU), ASR = FunASR/SenseVoiceSmall (CPU).
+# ---------------------------------------------------------------------------
+
+server:
+  ip: 0.0.0.0
+  port: 8000
+  http_port: 8003
+  # >>> EDIT: replace 192.168.1.50 with AIBOX's LAN IP (run ipconfig on AIBOX). <<<
+  # This exact string is what the OTA endpoint hands back to the robot, so it
+  # MUST be an address the robot can reach — not localhost, not 0.0.0.0.
+  websocket: ws://192.168.1.50:8000/xiaozhi/v1/
+  vision_explain: http://192.168.1.50:8003/mcp/vision/explain
+  # No auth for a LAN-only box. Turn this on later if you expose it.
+  auth:
+    enabled: false
+
+selected_module:
+  # VAD + ASR left at upstream defaults (SileroVAD + FunASR).
+  LLM: OllamaLLM        # -> native Windows Ollama on the eGPU
+  TTS: KokoroTTS        # -> local Kokoro container, CPU
+  Intent: function_call # enables tool calls, incl. web search
+  Memory: nomem         # keep v1 stateless; switch to mem_local_short later
+
+LLM:
+  OllamaLLM:
+    type: ollama
+    # Must match `ollama list` exactly. Pull it first:
+    #   ollama pull qwen2.5:7b-instruct
+    model_name: qwen2.5:7b-instruct
+    # Ollama runs on the HOST, not in Docker. Requires OLLAMA_HOST=0.0.0.0
+    # set on the host (see README) so the container can reach it.
+    base_url: http://host.docker.internal:11434
+
+TTS:
+  KokoroTTS:
+    # xiaozhi's generic OpenAI-compatible TTS adapter. Kokoro-FastAPI speaks
+    # exactly this schema at /v1/audio/speech.
+    type: openai
+    api_url: http://kokoro:8880/v1/audio/speech
+    api_key: not-needed
+    model: kokoro
+    # Kokoro voices: af_sky, af_bella, af_nicole, am_adam, am_michael, bf_emma ...
+    voice: af_sky
+    speed: 1.0
+    output_dir: tmp/
+
+Intent:
+  function_call:
+    type: function_call
+    functions:
+      - web_search   # "search the web when needed"
+      - play_music
+      - handle_exit_intent
+
+# Web search tool. Fastest path is Tavily (free tier, ~1k searches/mo).
+# Self-hosted SearXNG + MCP is the later, fully-offline upgrade (w3-websearch).
+plugins:
+  web_search:
+    provider: tavily
+    # >>> EDIT: your Tavily key (tvly-...). Get one at https://tavily.com <<<
+    api_key: tvly-REPLACE_ME
+    max_results: 5
+
+# Persona / system prompt. Tweak to taste.
+prompt: |
+  You are StackChan, a small desktop robot companion. Keep replies short,
+  warm, and spoken-friendly — one or two sentences. When the user asks about
+  current events, prices, or anything you can't know, use the web_search tool.

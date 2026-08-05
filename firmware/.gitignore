@@ -63,5 +63,8 @@ obj/
 
 sdkconfig
 sdkconfig.old
+# Self-hosted repoint overlay — contains your LAN IP, keep it local.
+# The tracked template is sdkconfig.defaults.local.example.
+sdkconfig.defaults.local
 
 xiaozhi-esp32/

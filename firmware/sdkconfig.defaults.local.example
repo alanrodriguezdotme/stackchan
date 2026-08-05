@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------
+# StackChan self-hosted repoint overlay.
+#
+# Copy this file to  firmware/sdkconfig.defaults.local  and edit the IP.
+# firmware/CMakeLists.txt auto-detects sdkconfig.defaults.local and layers it
+# on top of the committed sdkconfig.defaults, so you can pin your LAN backend
+# without touching tracked files. Then: idf.py build && idf.py app-flash.
+#
+# NOTE: this rebuild path is the guaranteed route. Before rebuilding, try the
+# no-rebuild route in deploy/offline-ai/README.md ("Repoint the robot") — the
+# device's captive-portal Advanced Options may let you set the OTA URL live.
+# ---------------------------------------------------------------------------
+
+# Voice AI backend discovery. The device POSTs here on boot and connects to the
+# websocket URL it returns (which your server advertises as server.websocket).
+# >>> EDIT: replace 192.168.1.50 with AIBOX's LAN IP. <<<
+CONFIG_OTA_URL="http://192.168.1.50:8003/xiaozhi/ota/"
+
+# M5Stack Go backend (device binding, app store, canned dances, phone-app WS
+# relay). NOT needed for the offline voice agent. Leave it commented until you
+# self-host the Go server (w3-goserver). If M5Stack's default box is up it does
+# no harm; if it's down the voice agent still works.
+# CONFIG_STACKCHAN_SERVER_URL="http://192.168.1.50:12800"

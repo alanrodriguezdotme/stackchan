@@ -1,0 +1,51 @@
+# StackChan offline AI voice backend — server-only xiaozhi stack.
+#
+# What runs where (see deploy/offline-ai/README.md for the why):
+#   - LLM (Qwen2.5-7B) runs in Ollama NATIVELY on Windows, using the eGPU
+#     RTX 3060. It is NOT in this compose file. Containers reach it via
+#     host.docker.internal:11434 (requires OLLAMA_HOST=0.0.0.0 on the host).
+#   - Everything below runs in Docker on CPU. No WSL2 GPU passthrough needed,
+#     which is what keeps the flaky eGPU-in-WSL2 path out of the picture.
+#
+# Ports:
+#   8000  -> robot voice websocket (advertised to device as ws://<LAN-IP>:8000/xiaozhi/v1/)
+#   8003  -> OTA + vision HTTP (this is what CONFIG_OTA_URL points at)
+#   8880  -> Kokoro TTS (internal only; xiaozhi reaches it as http://kokoro:8880)
+
+services:
+  xiaozhi-server:
+    # Canonical image. If pulls are slow, swap to the NJU mirror:
+    #   ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:server_latest
+    image: ghcr.io/xinnan-tech/xiaozhi-esp32-server:server_latest
+    container_name: xiaozhi-server
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - TZ=${TZ:-America/Los_Angeles}
+    ports:
+      - "8000:8000"
+      - "8003:8003"
+    volumes:
+      # Your real config lives here: copy xiaozhi-config.override.example.yaml
+      # to ./data/.config.yaml and fill it in.
+      - ./data:/opt/xiaozhi-esp32-server/data
+      # SenseVoiceSmall ASR weights (see README "Download the ASR model").
+      - ./models/SenseVoiceSmall/model.pt:/opt/xiaozhi-esp32-server/models/SenseVoiceSmall/model.pt
+    extra_hosts:
+      # Lets the container reach Ollama running natively on the Windows host.
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - kokoro
+
+  kokoro:
+    # Local, OpenAI-compatible TTS (/v1/audio/speech). CPU build — near
+    # real-time on the Ryzen 7 6800H, ~no VRAM, leaves the GPU for the LLM.
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    container_name: kokoro-tts
+    restart: unless-stopped
+    expose:
+      - "8880"
+    # Uncomment to poke the TTS directly from the host for debugging:
+    # ports:
+    #   - "8880:8880"
