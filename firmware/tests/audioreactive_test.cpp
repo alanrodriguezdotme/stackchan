@@ -203,8 +203,12 @@ void testBeatSilenceNoFalsePositives()
 
 void testBeatRefractory()
 {
+    // Isolate the refractory behavior from the sensitivity tuning: use a lenient
+    // threshold so what limits the beat count is purely the refractory gap.
     BeatDetectorConfig cfg;
     cfg.refractoryMs = 260;
+    cfg.sensitivity  = 1.0f;
+    cfg.meanFactor   = 1.1f;
     BeatDetector det(cfg);
 
     // Warm up the baseline low.
@@ -252,18 +256,73 @@ void testHsvPrimaries()
     check(r == 0 && g == 0 && b == 0, "hsv black");
 }
 
-void testDanceBeatFlipsSway()
+// Feed `beats` beats to arm the director; returns the last command.
+DanceCommand armDirector(DanceDirector& dir, const BandEnergies& bands, float level,
+                         uint32_t startMs, uint32_t gapMs, int beats)
+{
+    DanceCommand c;
+    uint32_t t = startMs;
+    for (int i = 0; i < beats; ++i) {
+        c = dir.onFrame(true, bands, level, t);
+        t += gapMs;
+    }
+    return c;
+}
+
+void testDanceStaysStillUntilArmed()
 {
     DanceDirector dir;
     BandEnergies bands;
     bands.bass = 0.1f;
 
+    // A single stray beat (e.g. a door slam) must NOT start the dance.
     auto c1 = dir.onFrame(true, bands, 1.0f, 0);
+    check(!c1.active, "not armed after one beat");
+    checkNear(c1.pitch, 0.0f, 1e-6f, "still (pitch) before armed");
+    checkNear(c1.yaw, 0.0f, 1e-6f, "still (yaw) before armed");
+
     auto c2 = dir.onFrame(true, bands, 1.0f, 400);
-    // Two beats -> sway direction should have flipped between them.
-    check((c1.yaw > 0.0f) != (c2.yaw > 0.0f), "consecutive beats flip sway side");
-    check(std::fabs(c1.yaw) > 0.1f, "beat produces real head movement");
-    check(c1.speed >= 900, "beat uses fast servo speed");
+    check(!c2.active, "not armed after two beats");
+
+    // Third beat within the arm window -> real rhythm, start dancing.
+    auto c3 = dir.onFrame(true, bands, 1.0f, 800);
+    check(c3.active, "armed after third beat in window");
+    check(dir.active(), "director reports active");
+}
+
+void testDanceDisarmsToStill()
+{
+    DanceDirector dir;
+    BandEnergies bands;
+    bands.bass = 0.1f;
+
+    armDirector(dir, bands, 1.0f, 0, 400, 3);
+    check(dir.active(), "armed after a rhythm");
+
+    // Music stops: no beats for longer than disarmQuietMs -> go still.
+    DanceCommand c;
+    for (uint32_t t = 850; t <= 3000; t += 50) {
+        c = dir.onFrame(false, bands, 0.2f, t);
+    }
+    check(!c.active, "disarms after a quiet period");
+    checkNear(c.pitch, 0.0f, 1e-6f, "still (pitch) after disarm");
+    checkNear(c.yaw, 0.0f, 1e-6f, "still (yaw) after disarm");
+}
+
+void testDanceNodsOnBeat()
+{
+    DanceDirector dir;
+    BandEnergies bands;
+    bands.bass = 0.1f;
+
+    armDirector(dir, bands, 1.0f, 0, 400, 3);
+    auto a = dir.onFrame(true, bands, 1.0f, 1200);
+    auto b = dir.onFrame(true, bands, 1.0f, 1600);
+
+    check(a.active && b.active, "dancing after arm");
+    check(a.pitch < -0.05f, "beat nods the head down (pitch is primary)");
+    check((a.yaw > 0.0f) != (b.yaw > 0.0f), "consecutive beats flip the subtle yaw lean");
+    check(a.speed == DanceConfig{}.beatSpeed, "beat uses the configured beat speed");
 }
 
 void testDanceRelaxesBetweenBeats()
@@ -272,34 +331,40 @@ void testDanceRelaxesBetweenBeats()
     BandEnergies bands;
     bands.bass = 0.1f;
 
-    auto hit = dir.onFrame(true, bands, 1.0f, 0);
-    float peak = std::fabs(hit.yaw);
+    armDirector(dir, bands, 1.0f, 0, 400, 3);
+    auto hit    = dir.onFrame(true, bands, 1.0f, 1200);
+    float peak  = std::fabs(hit.pitch);
 
-    // No further beats for a while; the hit envelope should decay the amplitude.
+    // No further beats (but stay inside the disarm window so it's still active):
+    // the nod should relax back toward center.
     DanceCommand later;
-    for (uint32_t t = 50; t <= 1200; t += 50) {
-        later = dir.onFrame(false, bands, 0.2f, t);
+    for (uint32_t t = 1250; t <= 2400; t += 50) {
+        later = dir.onFrame(false, bands, 0.5f, t);
     }
-    check(std::fabs(later.yaw) < peak, "yaw amplitude decays without new beats");
-    check(later.speed < 900, "idle uses slower servo speed");
+    check(later.active, "still armed while relaxing");
+    check(std::fabs(later.pitch) < peak, "nod amplitude decays without new beats");
 }
 
 void testDanceMouthTracksHighs()
 {
     DanceDirector dir;
-    BandEnergies quiet;   // all zero
+    BandEnergies armBands;
+    armBands.bass = 0.1f;
+    armDirector(dir, armBands, 1.0f, 0, 400, 3);  // become active first
+
     BandEnergies bright;
     bright.mid    = 0.15f;
     bright.treble = 0.15f;
-
     DanceCommand loud;
-    for (uint32_t t = 0; t <= 300; t += 30) {
+    for (uint32_t t = 850; t <= 1200; t += 30) {
         loud = dir.onFrame(false, bright, 0.8f, t);
     }
+    BandEnergies quiet;  // all zero
     DanceCommand silent;
-    for (uint32_t t = 400; t <= 700; t += 30) {
-        silent = dir.onFrame(false, quiet, 0.0f, t);
+    for (uint32_t t = 1230; t <= 1600; t += 30) {
+        silent = dir.onFrame(false, quiet, 0.8f, t);
     }
+    check(loud.active, "still dancing during the bright passage");
     check(loud.mouthOpen > silent.mouthOpen, "mouth opens more with mid/treble energy");
     check(loud.emotion == 1, "loud passage -> happy expression");
 }
@@ -310,8 +375,9 @@ void testDanceColorAdvancesOnBeat()
     BandEnergies bands;
     bands.bass = 0.1f;
 
-    auto a = dir.onFrame(true, bands, 1.0f, 0);
-    auto b = dir.onFrame(true, bands, 1.0f, 400);
+    armDirector(dir, bands, 1.0f, 0, 400, 3);
+    auto a = dir.onFrame(true, bands, 1.0f, 1200);
+    auto b = dir.onFrame(true, bands, 1.0f, 1600);
     const bool changed = (a.r != b.r) || (a.g != b.g) || (a.b != b.b);
     check(changed, "color wheel advances across beats");
 }
@@ -333,7 +399,9 @@ int main()
     testBeatLevelNormalized();
 
     testHsvPrimaries();
-    testDanceBeatFlipsSway();
+    testDanceStaysStillUntilArmed();
+    testDanceDisarmsToStill();
+    testDanceNodsOnBeat();
     testDanceRelaxesBetweenBeats();
     testDanceMouthTracksHighs();
     testDanceColorAdvancesOnBeat();

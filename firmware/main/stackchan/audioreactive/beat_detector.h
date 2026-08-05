@@ -25,17 +25,19 @@ namespace stackchan::audioreactive {
 
 struct BeatDetectorConfig {
     // Beat fires when energy > localMean + sensitivity * localStdDev.
-    float sensitivity = 1.6f;
+    float sensitivity = 1.8f;
 
     // ...and also energy > localMean * meanFactor (guards against firing on tiny
     // fluctuations when the signal is nearly flat / silent).
-    float meanFactor = 1.3f;
+    float meanFactor = 1.35f;
 
     // Absolute noise floor. Energy below this can never be a beat.
     float noiseFloor = 0.0008f;
 
-    // Minimum gap between beats. 300 ms ~= 200 BPM ceiling; rejects double-triggers.
-    uint32_t refractoryMs = 260;
+    // Minimum gap between beats. 320 ms ~= 185 BPM ceiling; also long enough to
+    // cover the head's nod-and-return so the servo's own motion noise can't
+    // register as the next beat.
+    uint32_t refractoryMs = 320;
 
     // Length of the rolling history window used for the local statistics.
     // ~43 hops ~= 0.45 s at a 256-sample hop / 24 kHz.

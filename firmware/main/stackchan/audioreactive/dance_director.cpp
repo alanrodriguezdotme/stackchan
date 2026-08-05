@@ -10,8 +10,6 @@
 namespace stackchan::audioreactive {
 
 namespace {
-constexpr float kPi = 3.14159265358979323846f;
-
 float clamp01(float v)
 {
     return std::min(1.0f, std::max(0.0f, v));
@@ -57,6 +55,11 @@ DanceDirector::DanceDirector(DanceConfig config) : _config(config)
 
 void DanceDirector::reset()
 {
+    _armed    = false;
+    _beat_times.clear();
+    _last_beat_ms = 0;
+    _has_beat     = false;
+
     _sway_dir     = 1;
     _hit          = 0.0f;
     _hue          = 0.0f;
@@ -77,36 +80,76 @@ DanceCommand DanceDirector::onFrame(bool beat, const BandEnergies& bands, float 
     // Guard against pathological gaps (first frame, long stalls).
     dt = std::min(dt, 0.1f);
 
-    // Smooth the loudness so idle motion + brightness don't jitter.
+    // --- Arming gate ---------------------------------------------------------
+    // Record beats and keep only those inside the rolling arm window.
+    if (beat) {
+        _has_beat     = true;
+        _last_beat_ms = tMs;
+        _beat_times.push_back(tMs);
+        while (!_beat_times.empty() &&
+               (tMs - _beat_times.front()) > _config.armWindowMs) {
+            _beat_times.erase(_beat_times.begin());
+        }
+    }
+    if (!_armed) {
+        // Enough beats in the window -> a real rhythm; start dancing.
+        if (static_cast<int>(_beat_times.size()) >= _config.armBeatsRequired) {
+            _armed = true;
+        }
+    } else {
+        // Music stopped -> disarm and hold still.
+        if (_has_beat && (tMs - _last_beat_ms) > _config.disarmQuietMs) {
+            _armed = false;
+            _beat_times.clear();
+            _hit = 0.0f;
+        }
+    }
+
+    // Smooth the loudness so brightness / scaling don't jitter.
     _level_smooth += (clamp01(level) - _level_smooth) * 0.25f;
 
-    // Beat -> flip sway direction and re-arm the hit envelope.
+    // --- Idle: hold perfectly still ------------------------------------------
+    if (!_armed) {
+        _hit = 0.0f;
+        DanceCommand idle;
+        idle.beat      = beat;
+        idle.active    = false;
+        idle.yaw       = 0.0f;
+        idle.pitch     = 0.0f;
+        idle.speed     = _config.idleSpeed;
+        idle.mouthOpen = 0.0f;
+        idle.emotion   = 0;
+        idle.r = idle.g = idle.b = 0;
+        return idle;
+    }
+
+    // --- Armed: nod on the beat, return to center between beats ---------------
     if (beat) {
         _sway_dir = -_sway_dir;
         _hit      = 1.0f;
         _hue += _config.hueStepPerBeat;
     }
 
-    // Relax the hit envelope exponentially between beats.
+    // Relax the hit envelope exponentially between beats -> head eases back to
+    // still. No perpetual idle sway; when _hit reaches 0 the head is centered.
     _hit -= _hit * _config.decayPerSecond * dt;
     _hit = clamp01(_hit);
 
     DanceCommand cmd;
-    cmd.beat = beat;
+    cmd.beat   = beat;
+    cmd.active = true;
 
-    // Head: a sharp beat "hit" toward the current sway side, plus a gentle idle
-    // sway that keeps it alive between beats. Both scale with loudness.
-    const float idle = std::sin(2.0f * kPi * _config.idleSwayHz * (static_cast<float>(tMs) / 1000.0f)) *
-                       0.35f * _level_smooth;
-    const float hitYaw = static_cast<float>(_sway_dir) * _config.yawAmplitude * _hit * (0.4f + 0.6f * _level_smooth);
-    cmd.yaw            = std::min(1.0f, std::max(-1.0f, hitYaw + idle * (1.0f - _hit)));
-
-    // Pitch bobs down on the hit (nod into the beat) driven by bass.
+    // Pitch nod is the primary motion: dip down on the hit, driven by bass.
     const float bassDrive = clamp01(bands.bass * 8.0f);
-    cmd.pitch = -_config.pitchAmplitude * _hit * (0.3f + 0.7f * bassDrive);
+    cmd.pitch = -_config.pitchAmplitude * _hit * (0.4f + 0.6f * bassDrive);
     cmd.pitch = std::min(1.0f, std::max(-1.0f, cmd.pitch));
 
-    cmd.speed = _hit > 0.5f ? _config.beatSpeed : _config.idleSpeed;
+    // Yaw adds just a subtle alternating lean so it isn't a metronome.
+    const float yaw = static_cast<float>(_sway_dir) * _config.yawAmplitude * _hit *
+                      (0.3f + 0.7f * _level_smooth);
+    cmd.yaw = std::min(1.0f, std::max(-1.0f, yaw));
+
+    cmd.speed = _config.beatSpeed;
 
     // Mouth follows mid+treble (vocals / hats) so it "sings along".
     const float mouthTarget = clamp01((bands.mid + bands.treble) * _config.mouthGain);
@@ -116,8 +159,7 @@ DanceCommand DanceDirector::onFrame(bool beat, const BandEnergies& bands, float 
     // Expression: happy while there's real energy, neutral when it dies down.
     cmd.emotion = (_level_smooth > _config.expressionOnLevel) ? 1 /*Happy*/ : 0 /*Neutral*/;
 
-    // Color: hue rides the beat wheel; brightness tracks loudness with a floor so
-    // the lights never go fully dark while dancing.
+    // Color: hue rides the beat wheel; brightness tracks loudness with a floor.
     const float bright = 0.25f + 0.75f * _level_smooth;
     hsvToRgb(_hue, 1.0f, bright, cmd.r, cmd.g, cmd.b);
 

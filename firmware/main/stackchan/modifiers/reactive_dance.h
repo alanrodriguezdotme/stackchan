@@ -37,6 +37,7 @@ public:
         std::atomic<float> level{0.0f};
         std::atomic<float> bpm{0.0f};
         std::atomic<bool> beat{false};
+        std::atomic<bool> active{false};
         std::atomic<uint32_t> lastBeatMs{0};
     };
 
@@ -79,6 +80,7 @@ public:
         _debug.level.store(beat.level);
         _debug.bpm.store(beat.bpm);
         _debug.beat.store(beat.beat);
+        _debug.active.store(cmd.active);
         if (beat.beat) {
             _debug.lastBeatMs.store(now);
         }
@@ -110,6 +112,11 @@ public:
     {
         _onset_mid_mix = mix;
     }
+    void setNodSpring(float stiffness, float damping)
+    {
+        _nod_stiffness = stiffness;
+        _nod_damping   = damping;
+    }
     void setAecEnabled(bool enabled)
     {
         _aec_enabled = enabled;
@@ -135,19 +142,23 @@ public:
         preset      = std::max(0, std::min(kNumSensitivityPresets - 1, preset));
         _sens_preset = preset;
         auto cfg     = _detector.config();
-        // Lower sensitivity value = lower threshold multiplier = more beats.
+        // Lower sensitivity value = lower threshold multiplier = more beats. Also
+        // widen the refractory at low sensitivity so it locks onto strong beats only.
         switch (preset) {
-            case 0:  // Low
-                cfg.sensitivity = 2.1f;
-                cfg.meanFactor  = 1.45f;
+            case 0:  // Low - only strong, obvious beats; fewest false triggers.
+                cfg.sensitivity  = 2.6f;
+                cfg.meanFactor   = 1.6f;
+                cfg.refractoryMs = 360;
                 break;
             case 1:  // Med
-                cfg.sensitivity = 1.6f;
-                cfg.meanFactor  = 1.3f;
+                cfg.sensitivity  = 1.8f;
+                cfg.meanFactor   = 1.35f;
+                cfg.refractoryMs = 320;
                 break;
-            case 2:  // High
-                cfg.sensitivity = 1.25f;
-                cfg.meanFactor  = 1.18f;
+            case 2:  // High - twitchier, picks up subtle beats.
+                cfg.sensitivity  = 1.3f;
+                cfg.meanFactor   = 1.2f;
+                cfg.refractoryMs = 280;
                 break;
         }
         _detector.setConfig(cfg);
@@ -176,11 +187,29 @@ public:
 private:
     void apply(Modifiable& stackchan, const audioreactive::DanceCommand& cmd)
     {
-        // Head.
-        stackchan.motion().lookAtNormalized(cmd.yaw, cmd.pitch, cmd.speed);
-
-        // Face: emotion + mouth openness.
         auto& avatar = stackchan.avatar();
+
+        // Idle: hold still. Only act on the transition into idle so we don't spam
+        // the servos with home commands (which would keep them buzzing / noisy).
+        if (!cmd.active) {
+            if (_was_active) {
+                stackchan.motion().goHome(cmd.speed);
+                if (_last_emotion != avatar::Emotion::Neutral) {
+                    avatar.setEmotion(avatar::Emotion::Neutral);
+                    _last_emotion = avatar::Emotion::Neutral;
+                }
+                avatar.mouth().setWeight(0);
+                stackchan.leftNeonLight().setColor(0, 0, 0);
+                stackchan.rightNeonLight().setColor(0, 0, 0);
+                _was_active = false;
+            }
+            return;
+        }
+
+        // Active: nod with a slightly-underdamped spring so the travel is close to
+        // linear with a tiny bounce at the end, instead of a critically-damped snap.
+        stackchan.motion().lookAtNormalizedSpring(cmd.yaw, cmd.pitch, _nod_stiffness, _nod_damping);
+
         const auto emotion =
             (cmd.emotion == 1) ? avatar::Emotion::Happy : avatar::Emotion::Neutral;
         if (emotion != _last_emotion) {
@@ -192,16 +221,25 @@ private:
         // Neon lights.
         stackchan.leftNeonLight().setColor(cmd.r, cmd.g, cmd.b);
         stackchan.rightNeonLight().setColor(cmd.r, cmd.g, cmd.b);
+
+        _was_active = true;
     }
 
     audioreactive::BeatDetector _detector;
     audioreactive::DanceDirector _director;
     std::array<int16_t, audioreactive::kFftSize> _frame{};
     std::array<int16_t, audioreactive::kFftSize> _ref{};
-    float _onset_mid_mix          = 0.5f;
+    // Onset for the beat detector is bass-dominant with only a touch of mid, so the
+    // robot's own broadband servo/mechanical noise contributes little and can't
+    // easily self-trigger a beat.
+    float _onset_mid_mix          = 0.15f;
     bool _aec_enabled             = true;
     float _ref_gain               = 1.0f;
     int _sens_preset              = 1;
+    // Nod spring: slightly under 2*sqrt(stiffness) critical damping for a small bounce.
+    float _nod_stiffness          = 150.0f;
+    float _nod_damping            = 21.0f;
+    bool _was_active              = false;
     avatar::Emotion _last_emotion = avatar::Emotion::Neutral;
     DebugState _debug;
 };

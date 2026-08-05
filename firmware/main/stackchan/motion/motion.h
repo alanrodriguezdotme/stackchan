@@ -129,6 +129,22 @@ public:
     void lookAtNormalized(float x, float y, int speed = 500);
 
     /**
+     * @brief Same normalized mapping as lookAtNormalized, but drives the servos
+     *        with explicit spring parameters instead of a speed preset.
+     *
+     * Lets callers pick the "feel" directly: a slightly-underdamped spring
+     * (damping a bit below 2*sqrt(stiffness)) gives a near-linear travel with a
+     * tiny bounce at the end, which reads much better for rhythmic nodding than
+     * the critically-damped snap that the speed mapping produces.
+     *
+     * @param x         Normalized horizontal value [-1.0, 1.0].
+     * @param y         Normalized vertical value [-1.0, 1.0].
+     * @param stiffness Spring stiffness (higher = faster).
+     * @param damping   Spring damping (lower relative to 2*sqrt(stiffness) = more bounce).
+     */
+    void lookAtNormalizedSpring(float x, float y, float stiffness, float damping);
+
+    /**
      * @brief Directs the head to look at a target point in 3D Cartesian space.
      *
      * This method performs Inverse Kinematics (IK) to convert 3D coordinates

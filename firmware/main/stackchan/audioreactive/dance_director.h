@@ -12,19 +12,27 @@
 #pragma once
 #include "audio_analysis.h"
 #include <cstdint>
+#include <vector>
 
 namespace stackchan::audioreactive {
 
 struct DanceConfig {
-    float yawAmplitude   = 0.85f;  // normalized [-1,1] head sway at full level
-    float pitchAmplitude = 0.45f;  // normalized head bob at full level
-    float idleSwayHz     = 0.6f;   // gentle sway when no beats are landing
-    float decayPerSecond = 3.5f;   // how fast a beat "hit" relaxes back toward idle
-    int beatSpeed        = 950;    // servo speed on a beat hit (0..1000)
-    int idleSpeed        = 350;    // servo speed for smooth idle motion
-    float hueStepPerBeat = 47.0f;  // degrees the color wheel advances per beat
+    float yawAmplitude   = 0.16f;  // subtle side sway on a beat (nod is the star)
+    float pitchAmplitude = 0.34f;  // primary downward nod at full level
+    float decayPerSecond = 4.5f;   // how fast a beat "hit" relaxes back toward still
+    float hueStepPerBeat = 30.0f;  // degrees the color wheel advances per beat
     float mouthGain      = 6.0f;   // scales mid+treble energy into mouth openness
     float expressionOnLevel = 0.35f;  // level above which the face goes Happy
+
+    // Arming gate: stay dead still until a real, sustained rhythm is heard, and go
+    // still again when the music stops. This is what keeps it from dancing to
+    // ambient room noise or to the sound of its own servos.
+    int armBeatsRequired    = 3;     // beats needed to start dancing...
+    uint32_t armWindowMs    = 2600;  // ...within this rolling window
+    uint32_t disarmQuietMs  = 1500;  // no beats for this long -> stop, hold still
+
+    int beatSpeed = 650;  // advisory servo speed on a beat hit (0..1000)
+    int idleSpeed = 300;  // servo speed used to ease home when disarming
 };
 
 struct DanceCommand {
@@ -34,7 +42,8 @@ struct DanceCommand {
     float mouthOpen = 0.0f;  // 0..1 mouth openness
     int emotion = 0;         // stackchan::avatar::Emotion as int (0 = Neutral, 1 = Happy)
     uint8_t r = 0, g = 0, b = 0;  // neon light color
-    bool beat = false;            // pass-through: true on the frame a beat hit
+    bool beat   = false;          // pass-through: true on the frame a beat hit
+    bool active = false;          // true while armed/dancing; false = hold still
 };
 
 /**
@@ -68,8 +77,21 @@ public:
         return _config;
     }
 
+    /**
+     * @brief True while armed (a rhythm has been locked and we're dancing).
+     */
+    bool active() const
+    {
+        return _armed;
+    }
+
 private:
     DanceConfig _config;
+
+    bool _armed             = false;  // arming state: still until real music
+    std::vector<uint32_t> _beat_times;  // recent beat timestamps (for arming)
+    uint32_t _last_beat_ms  = 0;
+    bool _has_beat          = false;
 
     int _sway_dir       = 1;      // +1 / -1, flips each beat
     float _hit          = 0.0f;   // 0..1 envelope of the most recent beat hit

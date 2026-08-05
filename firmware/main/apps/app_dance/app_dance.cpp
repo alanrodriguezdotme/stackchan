@@ -100,16 +100,26 @@ public:
         _band[1]->setValue(scale(s.mid.load(), 380.0f));
         _band[2]->setValue(scale(s.treble.load(), 460.0f));
 
-        const float bpm = s.bpm.load();
-        if (bpm > 1.0f) {
+        const bool active = s.active.load();
+        const float bpm   = s.bpm.load();
+        if (!active) {
+            _bpm_label->setText("LISTEN");
+        } else if (bpm > 1.0f) {
             _bpm_label->setText(fmt::format("{:.0f} BPM", bpm));
         } else {
             _bpm_label->setText("-- BPM");
         }
 
-        // Flash the dot for ~120 ms after each detected beat.
-        const bool lit = (now - s.lastBeatMs.load()) < 120;
-        _beat_dot->setBgColor(lv_color_hex(lit ? 0xFFFFFF : 0x303030));
+        // Beat dot: white flash on each detected beat while dancing; a dim blue
+        // "armed" glow between beats; near-black while idle/listening.
+        const bool lit = active && (now - s.lastBeatMs.load()) < 120;
+        uint32_t dot   = 0x202020;
+        if (lit) {
+            dot = 0xFFFFFF;
+        } else if (active) {
+            dot = 0x2E6BFF;
+        }
+        _beat_dot->setBgColor(lv_color_hex(dot));
     }
 
 private:

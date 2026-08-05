@@ -82,6 +82,14 @@ void Motion::lookAtNormalized(float x, float y, int speed)
     moveWithSpeed(angles.yaw, angles.pitch, speed);
 }
 
+void Motion::lookAtNormalizedSpring(float x, float y, float stiffness, float damping)
+{
+    auto angles = calculateNormalizedLookAngles(
+        x, y, _yaw_servo->getAngleLimit().x, _yaw_servo->getAngleLimit().y, _pitch_servo->getAngleLimit().x, _pitch_servo->getAngleLimit().y);
+    _yaw_servo->moveWithSpringParams(angles.yaw, stiffness, damping);
+    _pitch_servo->moveWithSpringParams(angles.pitch, stiffness, damping);
+}
+
 void Motion::lookAtPoint(float x, float y, float z, int speed)
 {
     auto angles = calculatePointLookAngles(x, y, z);
